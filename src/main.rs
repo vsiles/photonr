@@ -1,10 +1,12 @@
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
+use std::time;
 
 use anyhow::Result;
 use parry3d::query::{details::RayIntersection, Ray, RayCast};
-use parry3d::shape::{Ball, Compound, SharedShape};
+// TODO: Compound is quite slow to use as a scene gatherer
+use parry3d::shape::Ball;
 
 mod math {
     use parry3d::na;
@@ -27,38 +29,28 @@ const MAX_TOI: f32 = 1000.0;
 
 type Col3 = Vector;
 
-fn hit_sphere(shape: &impl RayCast, ray: &Ray) -> Option<RayIntersection> {
+fn hit_shape(shape: &impl RayCast, iso: &Isometry, ray: &Ray) -> Option<RayIntersection> {
     // TODO: if the resulting toi is close to 0, normal might not be reliable
-    shape.cast_ray_and_get_normal(&Isometry::identity(), &ray, MAX_TOI, true)
+    shape.cast_ray_and_get_normal(iso, ray, MAX_TOI, true)
 }
 
 fn ray_color(r: &Ray) -> Col3 {
     let background_gradient = 0.5 * (r.dir.y + 1.0);
     let white = Color::new(1.0, 1.0, 1.0);
     let blue = Color::new(0.5, 0.7, 1.0);
-    // let red = Color::new(1.0, 0.0, 0.0);
 
-    let small: (Isometry, SharedShape) = (
-        Vector::new(0.0, 0.0, -1.0).into(),
-        SharedShape::new(Ball::new(0.5)),
-    );
-    let big: (Isometry, SharedShape) = (
-        Vector::new(0.0, -100.5, -1.0).into(),
-        SharedShape::new(Ball::new(100.0)),
-    );
+    let small: (Isometry, _) = (Vector::new(0.0, 0.0, -1.0).into(), Ball::new(0.5));
+    let big: (Isometry, _) = (Vector::new(0.0, -100.5, -1.0).into(), Ball::new(100.0));
 
-    let mut shared_shapes = Vec::new();
-    shared_shapes.push(small);
-    shared_shapes.push(big);
+    let shapes = vec![small, big];
 
-    let compound = Compound::new(shared_shapes);
-
-    if let Some(intersection) = hit_sphere(&compound, r) {
-        let col: Col3 = intersection.normal + Vector::new(1.0, 1.0, 1.0);
-        return col * 0.5;
-    } else {
-        white.lerp(&blue, background_gradient)
+    for (iso, shape) in &shapes {
+        if let Some(intersection) = hit_shape(shape, iso, r) {
+            let col: Col3 = intersection.normal + Vector::new(1.0, 1.0, 1.0);
+            return col * 0.5;
+        }
     }
+    white.lerp(&blue, background_gradient)
 }
 
 pub fn write_color(v: &mut Vec<u8>, c: &Col3) {
@@ -68,6 +60,9 @@ pub fn write_color(v: &mut Vec<u8>, c: &Col3) {
 }
 
 fn main() -> Result<()> {
+    // very simple time computation
+    let start = time::Instant::now();
+
     // Calculate the image height, and ensure that it's at least 1.
     let width: Scalar = IMAGE_WIDTH as Scalar;
     let mut height = width / ASPECT_RATIO;
@@ -105,21 +100,22 @@ fn main() -> Result<()> {
         std::io::stdout().flush().unwrap();
         for i in 0..IMAGE_WIDTH {
             let pixel_center: Point =
-                (pixel00_loc + (i as Scalar * pixel_delta_u) + (j as Scalar * pixel_delta_v))
-                    .into();
+                pixel00_loc + (i as Scalar * pixel_delta_u) + (j as Scalar * pixel_delta_v);
             let ray_direction: Vector = pixel_center - camera_center;
             let r = Ray::new(camera_center, ray_direction);
             let pixel_color = ray_color(&r);
             write_color(&mut data, &pixel_color);
         }
     }
-    print!("\r                                ");
+    println!("\r                                ");
     std::io::stdout().flush().unwrap();
-    println!("\rDone.");
+
+    let duration = start.elapsed();
+    println!("\rDone in {} milliseconds", duration.as_millis());
 
     let path = Path::new(r"./image.png");
     let file = File::create(path).unwrap();
-    let ref mut w = BufWriter::new(file);
+    let w = BufWriter::new(file);
 
     let mut encoder = png::Encoder::new(w, IMAGE_WIDTH as u32, image_height as u32);
     encoder.set_color(png::ColorType::Rgb);
