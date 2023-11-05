@@ -1,0 +1,11 @@
+[package]
+name = "misc"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+png = "0.17.10"
+parry3d = "0.13.5"
+anyhow = "1.0.75"
