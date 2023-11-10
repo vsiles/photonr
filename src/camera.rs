@@ -2,6 +2,7 @@
 use parry3d::query::{Ray, RayCast};
 
 use crate::math::*;
+use rayon::prelude::*;
 use std::io::Write;
 
 const MAX_TOI: f32 = 1000.0;
@@ -66,7 +67,7 @@ impl Camera {
     // TODO replace Vec with Iterator
     pub fn render<R>(&self, world: &Vec<(Isometry, R)>) -> Vec<u8>
     where
-        R: RayCast,
+        R: RayCast + std::marker::Sync,
     {
         println!(
             "Generating image: size {} x {}",
@@ -77,6 +78,7 @@ impl Camera {
         let start = std::time::Instant::now();
 
         let data = (0..self.image_height)
+            .into_par_iter()
             .map(|j| {
                 print!("\rScanlines remaining: {}", self.image_height - j);
                 std::io::stdout().flush().unwrap();
