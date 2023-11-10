@@ -16,10 +16,12 @@ pub struct Camera {
     pixel_delta_v: Vector,
 }
 
-fn write_color(v: &mut Vec<u8>, c: &Color) {
-    v.push((c.x * 255.999) as u8);
-    v.push((c.y * 255.999) as u8);
-    v.push((c.z * 255.999) as u8);
+fn write_color(c: &Color) -> Vec<u8> {
+    vec![
+        (c.x * 255.999) as u8,
+        (c.y * 255.999) as u8,
+        (c.z * 255.999) as u8,
+    ]
 }
 
 impl Camera {
@@ -70,30 +72,34 @@ impl Camera {
             "Generating image: size {} x {}",
             self.image_width, self.image_height
         );
-        let mut data: Vec<u8> = Vec::new();
 
         // very simple time computation
         let start = std::time::Instant::now();
 
-        for j in 0..self.image_height {
-            print!("\rScanlines remaining: {}", self.image_height - j);
-            std::io::stdout().flush().unwrap();
-            for i in 0..self.image_width {
-                let pixel_center: Point = self.pixel00_loc
-                    + (i as Scalar * self.pixel_delta_u)
-                    + (j as Scalar * self.pixel_delta_v);
-                let ray_direction: Vector = pixel_center - self.center;
-                let r = Ray::new(self.center, ray_direction);
-                let pixel_color = Self::ray_color(&r, world);
-                write_color(&mut data, &pixel_color);
-            }
-        }
+        let data = (0..self.image_height)
+            .map(|j| {
+                print!("\rScanlines remaining: {}", self.image_height - j);
+                std::io::stdout().flush().unwrap();
+                (0..self.image_width)
+                    .map(|i| {
+                        let pixel_center: Point = self.pixel00_loc
+                            + (i as Scalar * self.pixel_delta_u)
+                            + (j as Scalar * self.pixel_delta_v);
+                        let ray_direction: Vector = pixel_center - self.center;
+                        let r = Ray::new(self.center, ray_direction);
+                        let pixel_color = Self::ray_color(&r, world);
+                        write_color(&pixel_color)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
         println!("\r                                ");
         std::io::stdout().flush().unwrap();
 
         let duration = start.elapsed();
         println!("\rDone in {} milliseconds", duration.as_millis());
-        data
+        let data: Vec<_> = data.into_iter().flatten().collect();
+        data.into_iter().flatten().collect()
     }
 
     fn ray_color<R>(ray: &Ray, world: &Vec<(Isometry, R)>) -> Color
