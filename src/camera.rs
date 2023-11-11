@@ -1,5 +1,6 @@
 // TODO: Compound is quite slow to use as a scene gatherer
 use parry3d::query::{Ray, RayCast};
+use rand::Rng;
 
 use crate::math::*;
 use rayon::prelude::*;
@@ -15,9 +16,12 @@ pub struct Camera {
     pixel00_loc: Point,
     pixel_delta_u: Vector,
     pixel_delta_v: Vector,
+    samples_per_pixel: usize,
 }
 
-fn write_color(c: &Color) -> Vec<u8> {
+fn write_color(c: &Color, samples_per_pixel: usize) -> Vec<u8> {
+    let factor: f32 = 1.0 / samples_per_pixel as f32;
+    let c = c * factor;
     vec![
         (c.x * 255.999) as u8,
         (c.y * 255.999) as u8,
@@ -26,6 +30,15 @@ fn write_color(c: &Color) -> Vec<u8> {
 }
 
 impl Camera {
+    fn pixel_sample_square(&self, rng: &mut rand::rngs::ThreadRng) -> Vector {
+        // Returns a random point in the square surrounding a pixel at the origin.
+        let offset: f32 = rng.gen_range(0.0..1.0);
+
+        let px = -0.5 + offset;
+        let py = -0.5 + offset;
+        (px * self.pixel_delta_u) + (py * self.pixel_delta_v)
+    }
+
     pub fn new(aspect_ratio: f32, image_width: usize) -> Camera {
         let width = image_width as f32;
         let mut height = width / aspect_ratio;
@@ -61,7 +74,19 @@ impl Camera {
             pixel00_loc,
             pixel_delta_u,
             pixel_delta_v,
+            samples_per_pixel: 10,
         }
+    }
+
+    fn get_ray(&self, rng: &mut rand::rngs::ThreadRng, i: usize, j: usize) -> Ray {
+        let pixel_center: Point = self.pixel00_loc
+            + (i as Scalar * self.pixel_delta_u)
+            + (j as Scalar * self.pixel_delta_v);
+
+        let pixel_sample: Point = pixel_center + self.pixel_sample_square(rng);
+
+        let ray_direction: Vector = pixel_sample - self.center;
+        Ray::new(self.center, ray_direction)
     }
 
     // TODO replace Vec with Iterator
@@ -81,16 +106,17 @@ impl Camera {
             .into_par_iter()
             .map(|j| {
                 print!("\rScanlines remaining: {}", self.image_height - j);
+                let mut rng = rand::thread_rng();
+
                 std::io::stdout().flush().unwrap();
                 (0..self.image_width)
                     .map(|i| {
-                        let pixel_center: Point = self.pixel00_loc
-                            + (i as Scalar * self.pixel_delta_u)
-                            + (j as Scalar * self.pixel_delta_v);
-                        let ray_direction: Vector = pixel_center - self.center;
-                        let r = Ray::new(self.center, ray_direction);
-                        let pixel_color = Self::ray_color(&r, world);
-                        write_color(&pixel_color)
+                        let mut pixel_color = Color::new(0.0, 0.0, 0.0);
+                        for _sample in 0..self.samples_per_pixel {
+                            let r = self.get_ray(&mut rng, i, j);
+                            pixel_color += Self::ray_color(&r, world);
+                        }
+                        write_color(&pixel_color, self.samples_per_pixel)
                     })
                     .collect::<Vec<_>>()
             })
