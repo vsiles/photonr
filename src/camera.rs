@@ -17,18 +17,65 @@ pub struct Camera {
     pixel_delta_u: Vector,
     pixel_delta_v: Vector,
     samples_per_pixel: usize,
+    max_depth: usize,
+}
+
+// TODO: use Scalar everywhere
+
+fn linear_to_gamma(linear_component: Scalar) -> Scalar {
+    Scalar::sqrt(linear_component)
 }
 
 fn write_color(c: &Color, samples_per_pixel: usize) -> Vec<u8> {
     let factor: f32 = 1.0 / samples_per_pixel as f32;
     let c = c * factor;
+
+    let r = linear_to_gamma(c.x);
+    let g = linear_to_gamma(c.y);
+    let b = linear_to_gamma(c.z);
+
     vec![
-        (c.x * 255.999) as u8,
-        (c.y * 255.999) as u8,
-        (c.z * 255.999) as u8,
+        (r * 255.999) as u8,
+        (g * 255.999) as u8,
+        (b * 255.999) as u8,
     ]
 }
 
+fn ray_color<R>(
+    rng: &mut rand::rngs::ThreadRng,
+    ray: &Ray,
+    world: &Vec<(Isometry, R)>,
+    depth: usize,
+) -> Color
+where
+    R: RayCast,
+{
+    if depth == 0 {
+        return Color::new(0.0, 0.0, 0.0);
+    }
+
+    let background_gradient = 0.5 * (ray.dir.y + 1.0);
+    let white = Color::new(1.0, 1.0, 1.0);
+    let blue = Color::new(0.5, 0.7, 1.0);
+
+    for (iso, shape) in world {
+        // TODO: if the resulting toi is close to 0, normal might not be reliable
+        if let Some(intersection) = shape.cast_ray_and_get_normal(iso, ray, MAX_TOI, true) {
+            if intersection.toi.abs() < f32::EPSILON {
+                continue;
+            }
+            let loc = ray.point_at(intersection.toi);
+            // random diffusion direction
+            // let direction = random_unit_vector_on_hemisphere(rng, &intersection.normal);
+            // Lambertian model
+            let direction = intersection.normal + random_unit_vector(rng);
+            let secondary_ray = Ray::new(loc, direction);
+            let diffuse = ray_color(rng, &secondary_ray, world, depth - 1);
+            return 0.5 * diffuse;
+        }
+    }
+    white.lerp(&blue, background_gradient)
+}
 impl Camera {
     fn pixel_sample_square(&self, rng: &mut rand::rngs::ThreadRng) -> Vector {
         // Returns a random point in the square surrounding a pixel at the origin.
@@ -75,6 +122,7 @@ impl Camera {
             pixel_delta_u,
             pixel_delta_v,
             samples_per_pixel: 10,
+            max_depth: 10,
         }
     }
 
@@ -114,7 +162,7 @@ impl Camera {
                         let mut pixel_color = Color::new(0.0, 0.0, 0.0);
                         for _sample in 0..self.samples_per_pixel {
                             let r = self.get_ray(&mut rng, i, j);
-                            pixel_color += Self::ray_color(&r, world);
+                            pixel_color += ray_color(&mut rng, &r, world, self.max_depth);
                         }
                         write_color(&pixel_color, self.samples_per_pixel)
                     })
@@ -128,23 +176,5 @@ impl Camera {
         println!("\rDone in {} milliseconds", duration.as_millis());
         let data: Vec<_> = data.into_iter().flatten().collect();
         data.into_iter().flatten().collect()
-    }
-
-    fn ray_color<R>(ray: &Ray, world: &Vec<(Isometry, R)>) -> Color
-    where
-        R: RayCast,
-    {
-        let background_gradient = 0.5 * (ray.dir.y + 1.0);
-        let white = Color::new(1.0, 1.0, 1.0);
-        let blue = Color::new(0.5, 0.7, 1.0);
-
-        for (iso, shape) in world {
-            // TODO: if the resulting toi is close to 0, normal might not be reliable
-            if let Some(intersection) = shape.cast_ray_and_get_normal(iso, ray, MAX_TOI, true) {
-                let col: Color = intersection.normal + Vector::new(1.0, 1.0, 1.0);
-                return col * 0.5;
-            }
-        }
-        white.lerp(&blue, background_gradient)
     }
 }
