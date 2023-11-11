@@ -1,12 +1,10 @@
-// TODO: Compound is quite slow to use as a scene gatherer
-use parry3d::query::{Ray, RayCast};
+use parry3d::query::Ray;
 use rand::Rng;
 
 use crate::math::*;
+use crate::world::*;
 use rayon::prelude::*;
 use std::io::Write;
-
-const MAX_TOI: f32 = 1000.0;
 
 pub struct Camera {
     // aspect_ratio: f32,
@@ -41,15 +39,8 @@ fn write_color(c: &Color, samples_per_pixel: usize) -> Vec<u8> {
     ]
 }
 
-fn ray_color<R>(
-    rng: &mut rand::rngs::ThreadRng,
-    ray: &Ray,
-    world: &Vec<(Isometry, R)>,
-    depth: usize,
-) -> Color
-where
-    R: RayCast,
-{
+// - Make world background configurable
+fn ray_color(rng: &mut rand::rngs::ThreadRng, ray: &Ray, world: &World, depth: usize) -> Color {
     if depth == 0 {
         return Color::new(0.0, 0.0, 0.0);
     }
@@ -58,24 +49,18 @@ where
     let white = Color::new(1.0, 1.0, 1.0);
     let blue = Color::new(0.5, 0.7, 1.0);
 
-    for (iso, shape) in world {
-        // TODO: if the resulting toi is close to 0, normal might not be reliable
-        if let Some(intersection) = shape.cast_ray_and_get_normal(iso, ray, MAX_TOI, true) {
-            if intersection.toi.abs() < f32::EPSILON {
-                continue;
-            }
-            let loc = ray.point_at(intersection.toi);
-            // random diffusion direction
-            // let direction = random_unit_vector_on_hemisphere(rng, &intersection.normal);
-            // Lambertian model
-            let direction = intersection.normal + random_unit_vector(rng);
-            let secondary_ray = Ray::new(loc, direction);
-            let diffuse = ray_color(rng, &secondary_ray, world, depth - 1);
-            return 0.5 * diffuse;
+    if let Some((intersection, material)) = world.hit(ray) {
+        if let Some((attenuation, scattered)) = material.scatter(rng, ray, &intersection) {
+            let color = ray_color(rng, &scattered, world, depth - 1);
+            return attenuation.component_mul(&color);
+        } else {
+            return Color::new(0.0, 0.0, 0.0);
         }
     }
+    // No hit, let's have a nice background for now
     white.lerp(&blue, background_gradient)
 }
+
 impl Camera {
     fn pixel_sample_square(&self, rng: &mut rand::rngs::ThreadRng) -> Vector {
         // Returns a random point in the square surrounding a pixel at the origin.
@@ -121,7 +106,7 @@ impl Camera {
             pixel00_loc,
             pixel_delta_u,
             pixel_delta_v,
-            samples_per_pixel: 10,
+            samples_per_pixel: 100,
             max_depth: 10,
         }
     }
@@ -137,11 +122,7 @@ impl Camera {
         Ray::new(self.center, ray_direction)
     }
 
-    // TODO replace Vec with Iterator
-    pub fn render<R>(&self, world: &Vec<(Isometry, R)>) -> Vec<u8>
-    where
-        R: RayCast + std::marker::Sync,
-    {
+    pub fn render(&self, world: World) -> Vec<u8> {
         println!(
             "Generating image: size {} x {}",
             self.image_width, self.image_height
@@ -153,7 +134,6 @@ impl Camera {
         let data = (0..self.image_height)
             .into_par_iter()
             .map(|j| {
-                print!("\rScanlines remaining: {}", self.image_height - j);
                 let mut rng = rand::thread_rng();
 
                 std::io::stdout().flush().unwrap();
@@ -161,8 +141,8 @@ impl Camera {
                     .map(|i| {
                         let mut pixel_color = Color::new(0.0, 0.0, 0.0);
                         for _sample in 0..self.samples_per_pixel {
-                            let r = self.get_ray(&mut rng, i, j);
-                            pixel_color += ray_color(&mut rng, &r, world, self.max_depth);
+                            let ray = self.get_ray(&mut rng, i, j);
+                            pixel_color += ray_color(&mut rng, &ray, &world, self.max_depth);
                         }
                         write_color(&pixel_color, self.samples_per_pixel)
                     })

@@ -8,6 +8,14 @@ pub type Isometry = na::Isometry3<f32>;
 
 use rand::Rng;
 
+pub fn vector_near_zero(v: &Vector) -> bool {
+    v.x.abs() < Scalar::EPSILON && v.y.abs() < Scalar::EPSILON && v.z.abs() < Scalar::EPSILON
+}
+
+pub fn vector_reflect(v: &Vector, n: &Vector) -> Vector {
+    v - 2.0 * v.dot(n) * n
+}
+
 #[allow(dead_code)]
 pub fn random_vector(rng: &mut rand::rngs::ThreadRng) -> Vector {
     Vector::new(rng.gen(), rng.gen(), rng.gen())
