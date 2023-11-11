@@ -1,9 +1,11 @@
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::Result;
+use clap::Parser;
+
+use anyhow::{bail, Context, Result};
+
+mod cli;
 
 mod math;
 use math::*;
@@ -11,7 +13,7 @@ use math::*;
 mod material;
 use material::*;
 
-const ASPECT_RATIO: Scalar = 16.0 / 9.0;
+const ASPECT_RATIO: f32 = 16.0 / 9.0;
 const IMAGE_WIDTH: usize = 400;
 
 mod camera;
@@ -21,7 +23,18 @@ mod world;
 use world::*;
 
 fn main() -> Result<()> {
-    let camera = Camera::new(ASPECT_RATIO, IMAGE_WIDTH);
+    let cli = cli::Cli::parse();
+
+    let width = cli.width.unwrap_or(IMAGE_WIDTH);
+    let aspect_ratio = cli.aspect_ratio.unwrap_or(ASPECT_RATIO);
+    let samples_per_pixel = cli.samples_per_pixel.unwrap_or(10);
+    let max_depth = cli.max_depth.unwrap_or(10);
+
+    let camera = Camera::new(aspect_ratio, width, samples_per_pixel, max_depth);
+
+    if cli.dump_info {
+        camera.dump_info()
+    }
 
     let mut world = World::new();
 
@@ -55,15 +68,18 @@ fn main() -> Result<()> {
     let data = camera.render(world);
 
     // Save as PNG
-    let path = Path::new(r"./image.png");
-    let file = File::create(path).unwrap();
-    let w = BufWriter::new(file);
+    let img = match image::RgbImage::from_vec(
+        camera.image_width as u32,
+        camera.image_height as u32,
+        data,
+    ) {
+        Some(img) => img,
+        None => bail!("Failed to create RGB image"),
+    };
 
-    let mut encoder = png::Encoder::new(w, camera.image_width as u32, camera.image_height as u32);
-    encoder.set_color(png::ColorType::Rgb);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header()?;
-    writer.write_image_data(&data)?;
+    let img = image::DynamicImage::ImageRgb8(img);
+    let path = Path::new(r"./image.png");
+    img.save(path).context("Failed to save PNG image")?;
 
     Ok(())
 }

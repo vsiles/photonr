@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use std::io::Write;
 
 pub struct Camera {
-    // aspect_ratio: f32,
+    aspect_ratio: f32,
     pub image_width: usize,
     pub image_height: usize,
     center: Point,
@@ -62,6 +62,14 @@ fn ray_color(rng: &mut rand::rngs::ThreadRng, ray: &Ray, world: &World, depth: u
 }
 
 impl Camera {
+    pub fn dump_info(&self) {
+        println!("image width: {}", self.image_width);
+        println!("image height: {}", self.image_height);
+        println!("aspect ratio: {}", self.aspect_ratio);
+        println!("samples per pixel: {}", self.samples_per_pixel);
+        println!("max depth: {}", self.max_depth);
+    }
+
     fn pixel_sample_square(&self, rng: &mut rand::rngs::ThreadRng) -> Vector {
         // Returns a random point in the square surrounding a pixel at the origin.
         let offset: f32 = rng.gen_range(0.0..1.0);
@@ -71,7 +79,12 @@ impl Camera {
         (px * self.pixel_delta_u) + (py * self.pixel_delta_v)
     }
 
-    pub fn new(aspect_ratio: f32, image_width: usize) -> Camera {
+    pub fn new(
+        aspect_ratio: f32,
+        image_width: usize,
+        samples_per_pixel: usize,
+        max_depth: usize,
+    ) -> Camera {
         let width = image_width as f32;
         let mut height = width / aspect_ratio;
         height = if height < 1.0 { 1.0 } else { height };
@@ -99,15 +112,15 @@ impl Camera {
         let pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
 
         Camera {
-            // aspect_ratio,
+            aspect_ratio,
             image_width,
             image_height,
             center,
             pixel00_loc,
             pixel_delta_u,
             pixel_delta_v,
-            samples_per_pixel: 100,
-            max_depth: 10,
+            samples_per_pixel,
+            max_depth,
         }
     }
 
@@ -131,13 +144,20 @@ impl Camera {
         // very simple time computation
         let start = std::time::Instant::now();
 
+        let cnt = std::sync::Arc::new(std::sync::Mutex::new(0));
         let data = (0..self.image_height)
             .into_par_iter()
             .map(|j| {
+                {
+                    let lock = cnt.lock();
+                    let val: u32 = *lock.unwrap();
+                    let ratio = val * 100 / self.image_height as u32;
+                    print!("\rCurrent progress: {} %", ratio);
+                }
                 let mut rng = rand::thread_rng();
 
                 std::io::stdout().flush().unwrap();
-                (0..self.image_width)
+                let res = (0..self.image_width)
                     .map(|i| {
                         let mut pixel_color = Color::new(0.0, 0.0, 0.0);
                         for _sample in 0..self.samples_per_pixel {
@@ -146,10 +166,13 @@ impl Camera {
                         }
                         write_color(&pixel_color, self.samples_per_pixel)
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>();
+                let mut lock = cnt.lock().unwrap();
+                *lock += 1;
+                res
             })
             .collect::<Vec<_>>();
-        println!("\r                                ");
+        println!("\r                                          ");
         std::io::stdout().flush().unwrap();
 
         let duration = start.elapsed();
