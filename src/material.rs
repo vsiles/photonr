@@ -1,5 +1,7 @@
 use parry3d::query::{Ray, RayIntersection};
 
+use serde::{Deserialize, Serialize};
+
 use crate::math::*;
 
 pub trait Material {
@@ -11,18 +13,17 @@ pub trait Material {
     ) -> Option<(Color, Ray)>;
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "lowercase")]
 pub struct Lambertian {
     albedo: Color,
 }
 
-unsafe impl Sync for Lambertian {}
-unsafe impl Send for Lambertian {}
-
-impl Lambertian {
-    pub fn new(albedo: Color) -> Lambertian {
-        Lambertian { albedo }
-    }
-}
+// impl Lambertian {
+//     pub fn new(albedo: Color) -> Lambertian {
+//         Lambertian { albedo }
+//     }
+// }
 
 impl Material for Lambertian {
     fn scatter(
@@ -40,30 +41,57 @@ impl Material for Lambertian {
     }
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "lowercase")]
 pub struct Metal {
     albedo: Color,
+    fuzz: f32,
 }
 
-unsafe impl Sync for Metal {}
-unsafe impl Send for Metal {}
-
-impl Metal {
-    pub fn new(albedo: Color) -> Metal {
-        Metal { albedo }
-    }
-}
+// impl Metal {
+//     pub fn new(albedo: Color, fuzz: f32) -> Metal {
+//         Metal {
+//             albedo,
+//             fuzz: fuzz.clamp(0.0, 1.0),
+//         }
+//     }
+// }
 
 impl Material for Metal {
     fn scatter(
         &self,
-        _rng: &mut rand::rngs::ThreadRng,
+        rng: &mut rand::rngs::ThreadRng,
         ray_in: &Ray,
         intersection: &RayIntersection,
     ) -> Option<(Color, Ray)> {
+        // TODO: do the math, should I normalize ray_in.dir ?
         let reflected = vector_reflect(&ray_in.dir, &intersection.normal);
-        Some((
-            self.albedo,
-            Ray::new(ray_in.point_at(intersection.toi), reflected),
-        ))
+        let hit = ray_in.point_at(intersection.toi);
+        let scattered = Ray::new(hit, reflected + self.fuzz * random_unit_vector(rng));
+        if scattered.dir.dot(&intersection.normal) > 0.0 {
+            Some((self.albedo, scattered))
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub enum MaterialKind {
+    Lambertian(Lambertian),
+    Metal(Metal),
+}
+
+impl Material for MaterialKind {
+    fn scatter(
+        &self,
+        rng: &mut rand::rngs::ThreadRng,
+        ray_in: &Ray,
+        intersection: &RayIntersection,
+    ) -> Option<(Color, Ray)> {
+        match self {
+            MaterialKind::Lambertian(mat) => mat.scatter(rng, ray_in, intersection),
+            MaterialKind::Metal(mat) => mat.scatter(rng, ray_in, intersection),
+        }
     }
 }

@@ -1,10 +1,11 @@
 use parry3d::query::Ray;
 use rand::Rng;
-
-use crate::math::*;
-use crate::world::*;
 use rayon::prelude::*;
 use std::io::Write;
+
+use crate::material::Material;
+use crate::math::*;
+use crate::world::*;
 
 pub struct Camera {
     aspect_ratio: f32,

@@ -1,17 +1,15 @@
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
-use std::sync::Arc;
-
-use clap::Parser;
 
 use anyhow::{bail, Context, Result};
+use clap::Parser;
+use encoding_rs::Encoding;
 
 mod cli;
-
-mod math;
-use math::*;
-
+mod json;
 mod material;
-use material::*;
+mod math;
 
 const ASPECT_RATIO: f32 = 16.0 / 9.0;
 const IMAGE_WIDTH: usize = 400;
@@ -21,6 +19,17 @@ use camera::Camera;
 
 mod world;
 use world::*;
+
+/// Helper function to deal with windows (utf16) vs other systems (utf8)
+
+fn detect_encoding(bytes: &[u8]) -> String {
+    let (encoding, _) = Encoding::for_bom(bytes).unwrap(); // TODO: deal with errors
+    eprintln!("Tentative encoding: {}", encoding.name());
+    let (content, actual_encoding, malformed) = encoding.decode(bytes);
+    eprintln!("Actual encoding: {}", actual_encoding.name());
+    eprintln!("malformed sequences spotted ? {}", malformed);
+    content.to_string()
+}
 
 fn main() -> Result<()> {
     let cli = cli::Cli::parse();
@@ -36,33 +45,20 @@ fn main() -> Result<()> {
         camera.dump_info()
     }
 
-    let mut world = World::new();
+    let mut scene = File::open(r"./scene.json").context("Can't open default scene 'scene.json'")?;
 
-    let material_ground = Lambertian::new(Color::new(0.8, 0.8, 0.0));
-    let material_center = Lambertian::new(Color::new(0.7, 0.3, 0.3));
-    let material_left = Metal::new(Color::new(0.8, 0.8, 0.8));
-    let material_right = Metal::new(Color::new(0.8, 0.6, 0.2));
+    // Read the file as bytes
+    let mut buffer = Vec::new();
+    scene
+        .read_to_end(&mut buffer)
+        .context("Failed to read scene as bytes")?;
 
-    world.add(Arc::new(Sphere::new(
-        Point::new(0.0, -100.5, -1.0),
-        100.0,
-        material_ground,
-    )));
-    world.add(Arc::new(Sphere::new(
-        Point::new(0.0, 0.0, -1.0),
-        0.5,
-        material_center,
-    )));
-    world.add(Arc::new(Sphere::new(
-        Point::new(-1.0, 0.0, -1.0),
-        0.5,
-        material_left,
-    )));
-    world.add(Arc::new(Sphere::new(
-        Point::new(1.0, 0.0, -1.0),
-        0.5,
-        material_right,
-    )));
+    // Detect the encoding and load the content as a string
+    let scene_description = detect_encoding(&buffer);
+
+    let jworld: json::World =
+        serde_json::from_str(&scene_description).context("Failed to read json input")?;
+    let world: World = jworld.into();
 
     // Render
     let data = camera.render(world);
