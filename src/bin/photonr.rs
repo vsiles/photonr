@@ -6,29 +6,22 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use encoding_rs::Encoding;
 
-mod cli;
-mod json;
-mod material;
-mod math;
-
 const ASPECT_RATIO: f32 = 16.0 / 9.0;
 const IMAGE_WIDTH: usize = 400;
 
-mod camera;
-use camera::Camera;
-
-mod world;
-use world::*;
+use photonr::camera::Camera;
+use photonr::world::*;
+use photonr::{cli, json};
 
 /// Helper function to deal with windows (utf16) vs other systems (utf8)
 
-fn detect_encoding(bytes: &[u8]) -> String {
-    let (encoding, _) = Encoding::for_bom(bytes).unwrap(); // TODO: deal with errors
+fn detect_encoding(bytes: &[u8]) -> Option<String> {
+    let (encoding, _) = Encoding::for_bom(bytes)?;
     eprintln!("Tentative encoding: {}", encoding.name());
     let (content, actual_encoding, malformed) = encoding.decode(bytes);
     eprintln!("Actual encoding: {}", actual_encoding.name());
     eprintln!("malformed sequences spotted ? {}", malformed);
-    content.to_string()
+    Some(content.to_string())
 }
 
 fn main() -> Result<()> {
@@ -54,7 +47,10 @@ fn main() -> Result<()> {
         .context("Failed to read scene as bytes")?;
 
     // Detect the encoding and load the content as a string
-    let scene_description = detect_encoding(&buffer);
+    let scene_description = match detect_encoding(&buffer) {
+        Some(str) => str,
+        None => std::fs::read_to_string(r"./scene.json")?,
+    };
 
     let jworld: json::World =
         serde_json::from_str(&scene_description).context("Failed to read json input")?;

@@ -7,6 +7,7 @@ use crate::material::Material;
 use crate::math::*;
 use crate::world::*;
 
+#[derive(Debug)]
 pub struct Camera {
     aspect_ratio: f32,
     pub image_width: usize,
