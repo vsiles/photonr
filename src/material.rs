@@ -13,7 +13,7 @@ pub trait Material {
     ) -> Option<(Color, Ray)>;
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(rename_all = "lowercase")]
 pub struct Lambertian {
     albedo: Color,
@@ -41,7 +41,7 @@ impl Material for Lambertian {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(rename_all = "lowercase")]
 pub struct Metal {
     albedo: Color,
@@ -76,7 +76,7 @@ impl Material for Metal {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum MaterialKind {
     Lambertian(Lambertian),
     Metal(Metal),

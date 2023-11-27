@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -237,6 +238,13 @@ fn linear_to_gamma(linear_component: f32) -> f32 {
 }
 
 fn main() -> Result<()> {
+    println!("Camera {}", std::mem::size_of::<Camera>());
+    println!("Sphere {}", std::mem::size_of::<Sphere>());
+    println!("Vec4 {}", std::mem::size_of::<Vec4>());
+
+    // Camera 84
+    // Sphere 32
+    // Vec4 16
     let cli = cli::Cli::parse();
 
     let width = cli.width.unwrap_or(IMAGE_WIDTH) as u32;
@@ -256,6 +264,10 @@ fn main() -> Result<()> {
 
     let jworld: json::World =
         serde_json::from_str(&scene_description).context("Failed to read json input")?;
+
+    for (name, mat) in jworld.materials.iter() {
+        println!("material {}: {:?}", name, mat)
+    }
     let spheres = mk_spheres(jworld);
 
     let pro_que = ProQue::builder()
@@ -288,6 +300,12 @@ fn main() -> Result<()> {
         .copy_host_slice(&spheres)
         .build()?;
 
+    let mut rng = rand::thread_rng();
+    let seed0: u32 = rng.gen();
+    let seed1: u32 = rng.gen();
+    let seed2: u32 = rng.gen();
+    let seed3: u32 = rng.gen();
+
     println!("Setting kernel arguments");
     let kernel = pro_que
         .kernel_builder("trace")
@@ -295,6 +313,10 @@ fn main() -> Result<()> {
         .arg(&buf_spheres)
         .arg(&camera)
         .arg(&nr_spheres)
+        .arg(&seed0)
+        .arg(&seed1)
+        .arg(&seed2)
+        .arg(&seed3)
         .build()?;
 
     unsafe {
@@ -310,7 +332,7 @@ fn main() -> Result<()> {
     println!("camera.pixel_delta_v: {:?}", camera.pixel_delta_v);
 
     // for i in 80000..80100 {
-    for i in 0..1 {
+    for i in 0..4 {
         println!("{:?} {:?}", vec[10 * i + 0], vec[10 * i + 1]);
         println!("{:?} {:?}", vec[10 * i + 2], vec[10 * i + 3]);
         println!("{:?} {:?}", vec[10 * i + 4], vec[10 * i + 5]);

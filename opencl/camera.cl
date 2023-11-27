@@ -1,3 +1,51 @@
+///////// /////// /////// /////// ///////
+// Simple Xorshift RNG
+
+uint xorshift_int(uint4* ctx) {
+	uint t = ctx->x ^ (ctx->x << 11);
+	*ctx = ctx->yzww;
+	ctx->w = ctx->w ^ (ctx->w >> 19) ^ (t ^ (t >> 8));
+
+	return ctx->w;
+}
+
+// roughly inside [0.0, 1.0)
+float xorshift_float(uint4* ctx) {
+	return xorshift_int(ctx) * 2.3283064e-10;
+}
+
+float4 random_vector(uint4 *ctx) {
+    float x = (xorshift_float(ctx) * 2.0f) - 1.0f;
+    float y = (xorshift_float(ctx) * 2.0f) - 1.0f;
+    float z = (xorshift_float(ctx) * 2.0f) - 1.0f;
+    return (float4)(x, y, z, 0.0f);
+}
+
+float4 random_vector_in_unit_sphere(uint4* ctx) {
+    float4 v;
+    for (int i = 0; i < 1000; i++) {
+        v = random_vector(ctx);
+        float d = v.x * v.x + v.y * v.y + v.z * v.z;
+        if (d < FLT_EPSILON) {
+            return v;
+        }
+    }
+    return v;
+}
+
+float4 random_unit_vector(uint4 *ctx) {
+    float4 v = random_vector_in_unit_sphere(ctx);
+    return normalize(v);
+}
+
+bool vector_near_zero(float4 *v) {
+    bool x = fabs(v->x) < FLT_EPSILON;
+    bool y = fabs(v->y) < FLT_EPSILON;
+    bool z = fabs(v->z) < FLT_EPSILON;
+    return (x && y && z);
+}
+///////// /////// /////// /////// ///////
+
 struct camera {
     unsigned int samples_per_pixel;
     unsigned int max_depth;
@@ -11,8 +59,8 @@ struct camera {
 };
 
 // TODO add rng
-float4 camera_pixel_sample_square(struct camera *cam) {
-    float offset = 0.42f; // TODO rng between [0.0, 1.0)
+float4 camera_pixel_sample_square(struct camera *cam, uint4* ctx) {
+    float offset = xorshift_float(ctx);
 
     float px = -0.5f + offset;
     float py = -0.5f + offset;
@@ -26,6 +74,7 @@ struct ray {
 };
 
 struct ray get_ray(struct camera *cam,
+    uint4* ctx,
     unsigned int i,
     unsigned int j) {
     float x = (float)i;
@@ -35,7 +84,7 @@ struct ray get_ray(struct camera *cam,
       + x * cam->pixel_delta_u
       + y * cam->pixel_delta_v;
 
-    float4 pixel_sample = pixel_center + camera_pixel_sample_square(cam);
+    float4 pixel_sample = pixel_center + camera_pixel_sample_square(cam, ctx);
     float4 direction = pixel_sample - cam->center;
 
     struct ray r;
@@ -89,7 +138,7 @@ int solveQuadratic(float a, float b, float c, float *t0, float *t1)
 
     *t0 = x0;
     *t1 = x1;
-    
+
     return 2;
 }
 
@@ -136,52 +185,74 @@ float4 sphere_color(unsigned int i) {
     }
 }
 
-float4 ray_color(struct ray r,
-    float4 attenuation,
+struct intersection {
+    float toi;
+    float4 normal;
+    float4 attenuation;
+};
+
+bool intersectSphere(struct ray *r,
     __global struct sphere *world,
     unsigned int nr_spheres,
-    unsigned int depth) {
-
-    if (depth == 0) {
-        return (float4)(0.0f, 1.0f, 0.0f, 0.0f);
-    }
-
-    float background_gradient = 0.5f * (r.direction.y + 1.0f);
-    float4 white = (float4)(1.0f, 1.0f, 1.0f, 0.0f);
-    float4 red = (float4)(1.0f, 0.0f, 0.0f, 0.0f);
-    float4 blue = (float4)(0.5f, 0.7f, 1.0f, 0.0f);
-
-    unsigned int i;
+    struct intersection *info) {
     float closest = 1000000.0f; // infinity
     bool hit = false;
-    float4 normal;
-    float4 pos;
-    unsigned int hit_nr;
+
+    unsigned int i;
     for (i = 0; i < nr_spheres; i++) {
-        float t;
+        float toi = 0.0f;
         __global const struct sphere *s = &world[i];
-        if (intersectRaySphere(&r, s, &t)) {
+        if (intersectRaySphere(r, s, &toi)) {
             hit = true;
-            if (t < closest) {
-                closest = t;
-                hit_nr = i;
-                pos = r.origin + t * r.direction;
-                normal = normalize(pos - s->center);
+            if (toi < closest) {
+                closest = toi;
+                info->toi = toi;
+                float4 pos = r->origin + toi * r->direction;
+                info->normal = pos - s->center; // TODO maybe normalize later
+                info->attenuation = sphere_color(i);
             }
         }
     }
 
-    if (!hit) {
-        // No hit, let's have a nice background for now
-        return lerp(white, blue, background_gradient); 
+    return hit;
+}
+
+float4 ray_color(uint4* ctx,
+    struct ray *r,
+    struct intersection *info,
+    __global struct sphere *world,
+    unsigned int nr_spheres,
+    unsigned int depth) {
+
+    float4 white = (float4)(1.0f, 1.0f, 1.0f, 0.0f);
+    // float4 red = (float4)(1.0f, 0.0f, 0.0f, 0.0f);
+    // float4 green = (float4)(0.0f, 1.0f, 0.0f, 0.0f);
+    float4 blue = (float4)(0.5f, 0.7f, 1.0f, 0.0f);
+
+    float4 color = (float4)(1.0f);
+
+    while (depth > 0) {
+        float background_gradient = 0.5f * (r->direction.y + 1.0f);
+
+        if (intersectSphere(r, world, nr_spheres, info)) {
+            float4 scatter_direction = info->normal + random_unit_vector(ctx);
+            if (vector_near_zero(&scatter_direction)) {
+                scatter_direction = info->normal;
+            }
+            float4 scatter_origin = r->origin + info->toi * r->direction;
+            r->origin = scatter_origin;
+            r->direction = scatter_direction;
+            color = color * info->attenuation;
+            depth -= 1;
+        } else {
+            // No hit, let's have a nice background for now
+            float4 bg = lerp(white, blue, background_gradient);
+            return color * bg;
+        }
     }
 
-    // Simple Lambertian without rng
-    attenuation = attenuation * sphere_color(hit_nr);
-    struct ray scattered;
-    scattered.origin = pos;
-    scattered.direction = normal;
-    return ray_color(scattered, attenuation, world, nr_spheres, depth - 1);
+    // return (float4)(0.0f);
+    return color;
 }
 
 // No RNG for now
@@ -189,16 +260,21 @@ float4 ray_color(struct ray r,
 __kernel void trace(__global float4 *img,
     __global struct sphere *spheres,
     struct camera cam,
-    unsigned int nr_spheres) {
+    unsigned int nr_spheres,
+    uint seed0,
+    uint seed1,
+    uint seed2,
+    uint seed3) {
+
+    uint4 ctx = (uint4)(seed0, seed1, seed2, seed3);
 
     int i = get_global_id(0);
     int j = get_global_id(1);
     int sample = get_global_id(2);
 
-    // ray
-    struct ray r = get_ray(&cam, i, j);
-    float4 attenuation = (float4)(1.0f, 1.0f, 1.0f, 1.0f);
-    float4 pixel_color = ray_color(r, attenuation, spheres, nr_spheres, 1); // cam.max_depth);
+    struct ray r = get_ray(&cam, &ctx, i, j);
+    struct intersection info;
+    float4 pixel_color = ray_color(&ctx, &r, &info, spheres, nr_spheres, cam.max_depth);
 
     unsigned int pos = i + cam.image_width * j;
     pos = sample + cam.samples_per_pixel * pos;
