@@ -6,6 +6,7 @@ pub type Vector = na::Vector3<Scalar>;
 pub type Color = Vector;
 pub type Isometry = na::Isometry3<f32>;
 
+#[allow(unused_imports)]
 use rand::Rng;
 
 pub fn vector_near_zero(v: &Vector) -> bool {
@@ -17,14 +18,18 @@ pub fn vector_reflect(v: &Vector, n: &Vector) -> Vector {
 }
 
 #[allow(dead_code)]
-pub fn random_vector(rng: &mut rand::rngs::ThreadRng) -> Vector {
-    Vector::new(rng.gen(), rng.gen(), rng.gen())
+pub fn random_vector(_rng: &mut rand::rngs::ThreadRng) -> Vector {
+    // Vector::new(rng.gen(), rng.gen(), rng.gen())
+    Vector::new(-42.0, 10000.0, -0.5)
 }
 
-fn random_vector_rang(rng: &mut rand::rngs::ThreadRng, min: Scalar, max: Scalar) -> Vector {
-    let x: f32 = rng.gen_range(min..max);
-    let y: f32 = rng.gen_range(min..max);
-    let z: f32 = rng.gen_range(min..max);
+fn random_vector_rang(_rng: &mut rand::rngs::ThreadRng, _min: Scalar, _max: Scalar) -> Vector {
+    // let x: f32 = rng.gen_range(min..max);
+    // let y: f32 = rng.gen_range(min..max);
+    // let z: f32 = rng.gen_range(min..max);
+    let x: f32 = 0.5;
+    let y: f32 = -0.4;
+    let z: f32 = 0.32;
     Vector::new(x, y, z)
 }
 

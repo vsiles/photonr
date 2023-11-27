@@ -220,9 +220,13 @@ impl Camera {
                 }
                 c = c * factor;
 
+                if !c.x.is_finite() || !c.y.is_finite() || !c.z.is_finite() {
+                    eprintln!("/!\\ Pixel {} {} : {:?}", i, j, c);
+                }
                 let r = (linear_to_gamma(c.x) * 255.999) as u8;
                 let g = (linear_to_gamma(c.y) * 255.999) as u8;
                 let b = (linear_to_gamma(c.z) * 255.999) as u8;
+                assert!(c.w == 0.0);
 
                 res.push(r);
                 res.push(g);

@@ -42,25 +42,31 @@ fn write_color(c: &Color, samples_per_pixel: usize) -> Vec<u8> {
 }
 
 // - Make world background configurable
-fn ray_color(rng: &mut rand::rngs::ThreadRng, ray: &Ray, world: &World, depth: usize) -> Color {
-    if depth == 0 {
-        return Color::new(0.0, 0.0, 0.0);
-    }
-
-    let background_gradient = 0.5 * (ray.dir.y + 1.0);
+fn ray_color(rng: &mut rand::rngs::ThreadRng, ray: &Ray, world: &World, mut depth: usize) -> Color {
     let white = Color::new(1.0, 1.0, 1.0);
     let blue = Color::new(0.5, 0.7, 1.0);
 
-    if let Some((intersection, material)) = world.hit(ray) {
-        if let Some((attenuation, scattered)) = material.scatter(rng, ray, &intersection) {
-            let color = ray_color(rng, &scattered, world, depth - 1);
-            return attenuation.component_mul(&color);
+    let mut r = ray.clone();
+    let mut color = Color::new(1.0, 1.0, 1.0);
+
+    while depth > 0 {
+        let background_gradient = 0.5 * (r.dir.y + 1.0);
+
+        if let Some((intersection, material)) = world.hit(&r) {
+            if let Some((attenuation, scattered)) = material.scatter(rng, &r, &intersection) {
+                r = scattered;
+                color = color.component_mul(&attenuation);
+                depth -= 1;
+            } else {
+                unreachable!()
+            }
         } else {
-            return Color::new(0.0, 0.0, 0.0);
+            // No hit, let's have a nice background for now
+            let bg = white.lerp(&blue, background_gradient);
+            return color.component_mul(&bg);
         }
     }
-    // No hit, let's have a nice background for now
-    white.lerp(&blue, background_gradient)
+    Color::new(0.0, 0.0, 0.0)
 }
 
 impl Camera {
@@ -72,9 +78,9 @@ impl Camera {
         println!("max depth: {}", self.max_depth);
     }
 
-    fn pixel_sample_square(&self, rng: &mut rand::rngs::ThreadRng) -> Vector {
+    fn pixel_sample_square(&self, _rng: &mut rand::rngs::ThreadRng) -> Vector {
         // Returns a random point in the square surrounding a pixel at the origin.
-        let offset: f32 = rng.gen_range(0.0..1.0);
+        let offset: f32 = 0.4; // rng.gen_range(0.0..1.0);
 
         let px = -0.5 + offset;
         let py = -0.5 + offset;

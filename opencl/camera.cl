@@ -14,17 +14,18 @@ float xorshift_float(uint4* ctx) {
 	return xorshift_int(ctx) * 2.3283064e-10;
 }
 
-float4 random_vector(uint4 *ctx) {
-    float x = (xorshift_float(ctx) * 2.0f) - 1.0f;
-    float y = (xorshift_float(ctx) * 2.0f) - 1.0f;
-    float z = (xorshift_float(ctx) * 2.0f) - 1.0f;
+// BETWEEN -1 and 1 !!!
+float4 random_vector_rang(uint4 *ctx) {
+    float x = 0.5f; // (xorshift_float(ctx) * 2.0f) - 1.0f;
+    float y = -0.4f; // (xorshift_float(ctx) * 2.0f) - 1.0f;
+    float z = 0.32f; // (xorshift_float(ctx) * 2.0f) - 1.0f;
     return (float4)(x, y, z, 0.0f);
 }
 
 float4 random_vector_in_unit_sphere(uint4* ctx) {
     float4 v;
     for (int i = 0; i < 1000; i++) {
-        v = random_vector(ctx);
+        v = random_vector_rang(ctx);
         float d = v.x * v.x + v.y * v.y + v.z * v.z;
         if (d < FLT_EPSILON) {
             return v;
@@ -60,7 +61,7 @@ struct camera {
 
 // TODO add rng
 float4 camera_pixel_sample_square(struct camera *cam, uint4* ctx) {
-    float offset = xorshift_float(ctx);
+    float offset = 0.4f; // xorshift_float(ctx);
 
     float px = -0.5f + offset;
     float py = -0.5f + offset;
@@ -177,11 +178,11 @@ float4 sphere_color(unsigned int i) {
     if (i == 0) {
         return (float4)(0.8f, 0.8f, 0.0f, 0.0f);
     } else if (i == 1) {
-        return (float4)(0.8f, 0.7f, 0.3f, 0.3f);
+        return (float4)(0.7f, 0.3f, 0.3f, 0.0f);
     } else if (i == 2) {
-        return (float4)(0.8f, 0.8f, 0.8f, 0.8f);
+        return (float4)(0.8f, 0.8f, 0.8f, 0.0f);
     } else {
-        return (float4)(0.8f, 0.8f, 0.6f, 0.2f);
+        return (float4)(0.8f, 0.6f, 0.2f, 0.0f);
     }
 }
 
@@ -195,7 +196,8 @@ bool intersectSphere(struct ray *r,
     __global struct sphere *world,
     unsigned int nr_spheres,
     struct intersection *info) {
-    float closest = 1000000.0f; // infinity
+    float closest;
+    closest = 1000000.0f; // infinity
     bool hit = false;
 
     unsigned int i;
@@ -208,7 +210,7 @@ bool intersectSphere(struct ray *r,
                 closest = toi;
                 info->toi = toi;
                 float4 pos = r->origin + toi * r->direction;
-                info->normal = pos - s->center; // TODO maybe normalize later
+                info->normal = normalize(pos - s->center);
                 info->attenuation = sphere_color(i);
             }
         }
@@ -218,31 +220,33 @@ bool intersectSphere(struct ray *r,
 }
 
 float4 ray_color(uint4* ctx,
-    struct ray *r,
-    struct intersection *info,
+    struct ray ray0,
     __global struct sphere *world,
     unsigned int nr_spheres,
     unsigned int depth) {
 
     float4 white = (float4)(1.0f, 1.0f, 1.0f, 0.0f);
-    // float4 red = (float4)(1.0f, 0.0f, 0.0f, 0.0f);
-    // float4 green = (float4)(0.0f, 1.0f, 0.0f, 0.0f);
     float4 blue = (float4)(0.5f, 0.7f, 1.0f, 0.0f);
 
-    float4 color = (float4)(1.0f);
+    struct ray r = ray0;
+    float4 color = (float4)(1.0f, 1.0f, 1.0f, 0.0f);
 
     while (depth > 0) {
-        float background_gradient = 0.5f * (r->direction.y + 1.0f);
+        float background_gradient = 0.5f * (r.direction.y + 1.0f);
+        struct intersection info;
 
-        if (intersectSphere(r, world, nr_spheres, info)) {
-            float4 scatter_direction = info->normal + random_unit_vector(ctx);
+        if (intersectSphere(&r, world, nr_spheres, &info)) {
+            float4 scatter_direction = info.normal + random_unit_vector(ctx);
             if (vector_near_zero(&scatter_direction)) {
-                scatter_direction = info->normal;
+                scatter_direction = info.normal;
             }
-            float4 scatter_origin = r->origin + info->toi * r->direction;
-            r->origin = scatter_origin;
-            r->direction = scatter_direction;
-            color = color * info->attenuation;
+            float toi = info.toi - 0.1f;
+            float4 scatter_origin = r.origin + toi * r.direction;
+            // float4 res = info.normal + (float4)(1.0f, 1.0f, 1.0f, 0.0f);
+            // return (res / 2);
+            r.origin = scatter_origin;
+            r.direction = scatter_direction;
+            color = color * info.attenuation;
             depth -= 1;
         } else {
             // No hit, let's have a nice background for now
@@ -251,8 +255,7 @@ float4 ray_color(uint4* ctx,
         }
     }
 
-    // return (float4)(0.0f);
-    return color;
+    return (float4)(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 // No RNG for now
@@ -273,8 +276,7 @@ __kernel void trace(__global float4 *img,
     int sample = get_global_id(2);
 
     struct ray r = get_ray(&cam, &ctx, i, j);
-    struct intersection info;
-    float4 pixel_color = ray_color(&ctx, &r, &info, spheres, nr_spheres, cam.max_depth);
+    float4 pixel_color = ray_color(&ctx, r, spheres, nr_spheres, cam.max_depth);
 
     unsigned int pos = i + cam.image_width * j;
     pos = sample + cam.samples_per_pixel * pos;
