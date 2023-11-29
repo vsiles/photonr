@@ -304,6 +304,12 @@ fn main() -> Result<()> {
         .copy_host_slice(&spheres)
         .build()?;
 
+    let buf_cam: ocl::Buffer<Camera> = pro_que
+        .buffer_builder()
+        .len(1)
+        .copy_host_slice(&vec![camera])
+        .build()?;
+
     let mut rng = rand::thread_rng();
     let seed0: u32 = rng.gen();
     let seed1: u32 = rng.gen();
@@ -315,7 +321,7 @@ fn main() -> Result<()> {
         .kernel_builder("trace")
         .arg(&img)
         .arg(&buf_spheres)
-        .arg(&camera)
+        .arg(&buf_cam)
         .arg(&nr_spheres)
         .arg(&seed0)
         .arg(&seed1)

@@ -74,7 +74,7 @@ struct ray {
     float4 direction;
 };
 
-struct ray get_ray(struct camera *cam,
+struct ray get_ray(__global struct camera *cam,
     uint4* ctx,
     unsigned int i,
     unsigned int j) {
@@ -262,7 +262,7 @@ float4 ray_color(uint4* ctx,
 // No Recursion for now
 __kernel void trace(__global float4 *img,
     __global struct sphere *spheres,
-    struct camera cam,
+    __global struct camera *cam,
     unsigned int nr_spheres,
     uint seed0,
     uint seed1,
@@ -275,11 +275,11 @@ __kernel void trace(__global float4 *img,
     int j = get_global_id(1);
     int sample = get_global_id(2);
 
-    struct ray r = get_ray(&cam, &ctx, i, j);
-    float4 pixel_color = ray_color(&ctx, r, spheres, nr_spheres, cam.max_depth);
+    struct ray r = get_ray(cam, &ctx, i, j);
+    float4 pixel_color = ray_color(&ctx, r, spheres, nr_spheres, cam->max_depth);
 
-    unsigned int pos = i + cam.image_width * j;
-    pos = sample + cam.samples_per_pixel * pos;
+    unsigned int pos = i + cam->image_width * j;
+    pos = sample + cam->samples_per_pixel * pos;
 
     img[pos] = pixel_color;
 }
