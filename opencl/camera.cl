@@ -60,7 +60,7 @@ struct camera {
 };
 
 // TODO add rng
-float4 camera_pixel_sample_square(struct camera *cam, uint4* ctx) {
+float4 camera_pixel_sample_square(__global struct camera *cam, uint4* ctx) {
     float offset = 0.4f; // xorshift_float(ctx);
 
     float px = -0.5f + offset;
